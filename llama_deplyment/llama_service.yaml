@@ -1,0 +1,88 @@
+# kuberay-llama-service.yaml
+
+apiVersion: ray.io/v1alpha1
+kind: RayService
+metadata:
+  name: llama-service
+  namespace:  # Specify your namespace
+spec:
+  serveConfigV2: |  # Corrected structure with 'applications'
+    applications:
+      - name: llama-app  # Give your application a name
+        import_path: llama_service:deployment  # Correct import path
+        runtime_env:
+          env_vars:
+            MODEL_NAME: "meta-llama/Llama-2-7b-chat-hf"  # Or your model
+            USE_HF_AUTH: "true"  # Set to "true" if using a HF token
+            HF_AUTH_TOKEN: "hf_0000000000000000000000000000000"  #  Your HF token
+            CUDA_VISIBLE_DEVICES: "0"  # Use GPU 0
+          pip:
+            - "transformers>=4.31.0"
+            - "torch>=2.0.1"
+            - "accelerate>=0.21.0"
+        route_prefix: /  # Optional route prefix
+  rayClusterConfig:
+    rayVersion: '2.9.0'  # Or your Ray version
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: '0.0.0.0'
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: rayproject/ray-ml:2.9.0 # Ray image + Python version
+              imagePullPolicy: IfNotPresent
+              resources:
+                limits:
+                  cpu: 4
+                  memory: 16Gi
+                requests:
+                  cpu: 2
+                  memory: 8Gi
+              ports:
+                - containerPort: 6379
+                  name: gcs
+                - containerPort: 10001
+                  name: client
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 8000
+                  name: serve
+              volumeMounts:
+                - mountPath: /dev/shm
+                  name: dshm
+          volumes:
+            - name: dshm
+              emptyDir:
+                medium: Memory
+    workerGroupSpecs:
+      - replicas: 1  # Initial replicas
+        minReplicas: 1  # Minimum replicas
+        maxReplicas: 5  # Maximum replicas (for autoscaling)
+        groupName: llama-workers
+        rayStartParams: {}
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray-ml:2.9.0
+                imagePullPolicy: IfNotPresent
+                resources:
+                  limits:
+                    cpu: 4
+                    memory: 16Gi
+                    nvidia.com/gpu: 1  # Request a GPU
+                  requests:
+                    cpu: 2
+                    memory: 8Gi
+                    nvidia.com/gpu: 1
+                volumeMounts:
+                  - mountPath: /dev/shm
+                    name: dshm
+            volumes:
+              - name: dshm
+                emptyDir:
+                  medium: Memory
+    autoscalerOptions:  # Autoscaling configuration
+        upscalingMode: Aggressive
+        idleTimeoutSeconds: 600                                    
